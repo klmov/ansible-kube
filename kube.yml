@@ -1,0 +1,121 @@
+- name: instal Docker
+  hosts: sandbox
+  become: yes
+  tasks:
+    - yum:
+       name: "{{ item }}"
+      with_items:
+       - yum-utils
+       - device-mapper-persistent-data
+       - lvm2
+    - shell: |
+        yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+        yum-config-manager --enable docker-ce-edge
+    - yum:
+       name: docker-ce
+   # - shell: systemctl enable docker && systemctl start docker
+    - systemd:
+       name: docker
+       state: started
+       enabled: True
+    - copy:
+       src: daemon.json
+       dest: /etc/docker/daemon.json
+    - systemd:
+       name: docker
+       state: restarted
+    - shell: systemctl restart docker
+    - copy:
+       src: kubernetes.repo
+       dest: /etc/yum.repos.d/kubernetes.repo
+    - selinux:
+       state: disabled
+    - yum:
+       name: "{{ item }}"
+       state: latest
+      with_items:
+       - kubelet
+       - kubeadm
+       - kubectl
+   # - shell: systemctl enable kubelet && systemctl start kubelet
+    - systemd:
+       name: kubelet
+       state: started
+       enabled: True
+    - copy:
+       src: k8s.conf
+       dest: /etc/sysctl.d/k8s.conf
+    - shell: |
+        sysctl --system
+        sed -i 's/[^#]\(.*swap.*\)/# \1/' /etc/fstab
+        swapoff --all
+
+- name: on Master
+  hosts: mastery
+  become: yes
+  tasks:
+    - shell: kubeadm reset
+    - shell: kubeadm init --apiserver-advertise-address 192.168.56.120 --token {{token}} --pod-network-cidr 10.244.0.0/16
+      ignore_errors: yes
+    - get_url:
+       url: https://gist.githubusercontent.com/sbeliakou/b97ca143b605d479cc1984211d4cacab/raw/799448e1baf5985f534382729729e82a09659eda/kube-flannel.yaml
+       dest: /home/vagrant/kube-flannel.yaml
+    - file:
+       path: /home/vagrant/.kube
+       state: directory
+    - copy:
+       src: /etc/kubernetes/admin.conf
+       dest: /home/vagrant/.kube/config
+       owner: vagrant
+       group: vagrant
+       remote_src: yes
+    - shell: kubectl apply -f /home/vagrant/kube-flannel.yaml
+      become: yes
+      become_user: vagrant
+    - shell: kubeadm token create --print-join-command
+      register: token
+    - debug:
+      msg: "{{ token.stdout }}"
+    - shell: kubectl create -f "{{item}}"
+      become: yes
+      become_user: vagrant
+      with_items:
+       - https://raw.githubusercontent.com/kubernetes/dashboard/master/src/deploy/recommended/kubernetes-dashboard.yaml
+       - https://gist.githubusercontent.com/sbeliakou/97fa000bc2b944481be07ec1cc51ba8e/raw/a161311aa0074ce61c31df3432088b2c98f9f742/admin-user.yaml
+    - local_action: command mkdir -p /home/student/.kube
+      become: yes
+      become_user: student
+    - fetch:
+       src:  /home/vagrant/.kube/config
+       dest: /home/student/.kube/config
+       flat: yes
+- name: on Worker
+  hosts: workers
+  become: yes
+  tasks:
+    - shell: "kubeadm join 192.168.56.120:6443 --token {{ token }} --discovery-token-unsafe-skip-ca-verification"
+
+- name: on Host
+  hosts: localhost
+  become: yes
+  become_user: student
+  tasks:
+    - shell: kubectl apply -f "{{item}}"
+      with_items:
+       - https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/namespace.yaml
+       - https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/default-backend.yaml
+       - https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/configmap.yaml
+       - https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/tcp-services-configmap.yaml
+       - https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/udp-services-configmap.yaml
+       - https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/rbac.yaml
+       - https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/with-rbac.yaml
+       - https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/baremetal/service-nodeport.yaml
+    - shell: kubectl patch svc ingress-nginx -n ingress-nginx --patch '{ "spec":{"externalIPs":[ "192.168.56.120" ] }}'
+    - shell: kubectl -n kube-system describe secret $(kubectl -n kube-system get secret | grep admin-user | awk '{print $1}') | awk '/\s*token:/'
+      register: dashboard_token
+    - template:
+        dest: ./token.html
+        src: token.j2
+    - shell: kubectl proxy --address='0.0.0.0' --accept-hosts='^*$' &
+    - shell: google-chrome http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/
+    - shell: google-chrome token.html

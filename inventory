@@ -1,0 +1,5 @@
+[sandbox]
+mastery ansible_user=vagrant ansible_host=127.0.0.1 ansible_ssh_port=2201 ansible_ssh_private_key_file=/home/student/ansiblekub/.vagrant/machines/mastery/virtualbox/private_key
+workers ansible_user=vagrant ansible_host=127.0.0.1 ansible_ssh_port=2202 ansible_ssh_private_key_file=/home/student/ansiblekub/.vagrant/machines/workers/virtualbox/private_key
+[sandbox:vars]
+token=2bkwjd.crt8l9o64c9f0l1s

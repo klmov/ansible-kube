@@ -1,0 +1,7 @@
+- name: jest
+  hosts: localhost
+  tasks:
+    - shell: vagrant up
+    - shell: ./vagrant.sh
+    - shell: rm -rf ~/.kube
+    - shell: ansible-playbook kube.yml
