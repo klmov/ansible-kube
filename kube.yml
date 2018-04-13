@@ -117,5 +117,4 @@
         dest: ./token.html
         src: token.j2
     - shell: kubectl proxy --address='0.0.0.0' --accept-hosts='^*$' &
-    - shell: google-chrome http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/
-    - shell: google-chrome ./token.html
+    - shell: google-chrome http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/ --new-window ./token.html
